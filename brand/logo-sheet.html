@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ShellCove 标识提案</title>
+<style>
+  :root{
+    --bg:#0a0c0e; --panel:#111619; --panel-2:#151b1f; --line:rgba(255,255,255,.08);
+    --ink:#eef2f2; --ink-2:#aab3b6; --ink-3:#727c80;
+    --accent:#3ecfbf; --accent-deep:#17a99c; --accent-soft:rgba(62,207,191,.12);
+    --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif;
+    --mono:"SF Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.6;padding:56px 40px 80px}
+  .wrap{max-width:1080px;margin:0 auto}
+  .kicker{font:600 11px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
+  h1{font-size:34px;font-weight:600;letter-spacing:-.03em;margin:14px 0 10px}
+  .lede{color:var(--ink-2);font-size:14.5px;max-width:620px}
+  .hero{display:flex;align-items:center;gap:34px;margin:40px 0 8px}
+  .hero .icon{width:184px;height:184px;filter:drop-shadow(0 26px 40px rgba(0,0,0,.55))}
+  .wordmark{display:flex;align-items:center;gap:14px;font-size:40px;font-weight:600;letter-spacing:-.035em}
+  .wordmark svg{width:40px;height:40px}
+  .tagline{color:var(--ink-3);font-size:13px;margin-top:6px}
+  .meta{margin-top:18px;display:flex;gap:26px;font-size:12px;color:var(--ink-3)}
+  .meta b{color:var(--ink-2);font-weight:500}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:44px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:24px;display:flex;flex-direction:column;gap:18px}
+  .card__head{display:flex;align-items:baseline;justify-content:space-between}
+  .card__no{font:600 11px/1 var(--mono);color:var(--ink-3);letter-spacing:.1em}
+  .card h2{font-size:16px;font-weight:600;letter-spacing:-.01em}
+  .card__stage{display:grid;place-items:center;height:196px;border-radius:12px;background:linear-gradient(180deg,#0d1114,#080a0b);border:1px solid rgba(255,255,255,.04)}
+  .card__stage .icon{width:148px;height:148px;filter:drop-shadow(0 14px 22px rgba(0,0,0,.5))}
+  .sizes{display:flex;align-items:flex-end;gap:16px;padding:2px 2px 0}
+  .sizes figure{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .sizes figcaption{font:500 9.5px/1 var(--mono);color:var(--ink-3)}
+  .note{font-size:12.4px;color:var(--ink-2);min-height:56px}
+  .note b{color:var(--ink);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-size:10.5px;color:var(--accent);background:var(--accent-soft);border-radius:20px;padding:3px 9px;font-weight:500}
+  .card--pick{border-color:rgba(62,207,191,.38);box-shadow:0 0 0 1px rgba(62,207,191,.12),0 20px 60px -30px rgba(62,207,191,.4)}
+  .pick{font:600 10px/1 var(--mono);letter-spacing:.1em;color:#062a27;background:var(--accent);border-radius:20px;padding:4px 8px}
+
+  h3.sec{font-size:13px;font-weight:600;color:var(--ink-2);letter-spacing:.02em;margin:52px 0 14px;display:flex;align-items:center;gap:10px}
+  h3.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+  .lightbox{background:#eef1f1;border-radius:18px;padding:30px;display:flex;align-items:center;gap:34px}
+  .lightbox .wordmark{color:#0d1214}
+  .lightbox .tagline{color:#6b7478}
+  .stack{display:flex;align-items:center;gap:12px}
+  .mono{color:#0d1214}
+
+  /* desktop context */
+  .ctx{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}
+  .pane{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+  .pane__label{font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:14px}
+  .menubar{display:flex;align-items:center;gap:14px;height:30px;padding:0 12px;border-radius:8px;background:rgba(30,36,39,.72);border:1px solid rgba(255,255,255,.06);font-size:12px;color:#dfe4e4}
+  .menubar svg{width:15px;height:15px}
+  .menubar .sp{flex:1}
+  .dock{display:flex;align-items:flex-end;gap:12px;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.09);width:max-content}
+  .dock .icon{width:46px;height:46px}
+  .dock .dot{width:3.5px;height:3.5px;border-radius:50%;background:rgba(255,255,255,.55);margin:6px auto 0}
+  .dock__item{display:flex;flex-direction:column;align-items:center}
+  .dock .ghost{width:46px;height:46px;border-radius:11px;background:linear-gradient(160deg,#2b3438,#171d20);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+  .fav{display:flex;align-items:center;gap:14px}
+  .fav .tab{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#3a4246;background:#fff;border-radius:8px 8px 0 0;padding:7px 12px;max-width:200px}
+  .fav .tab svg{width:13px;height:13px}
+
+  .palette{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .sw{border-radius:12px;border:1px solid var(--line);overflow:hidden;background:var(--panel)}
+  .sw__c{height:64px}
+  .sw__t{padding:9px 11px;font-size:11px;color:var(--ink-2)}
+  .sw__t b{display:block;color:var(--ink);font-size:11.5px;font-weight:600}
+  .sw__t span{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+  .files{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .files div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px;display:flex;flex-direction:column;gap:4px}
+  .files code{font:500 11.5px/1.5 var(--mono);color:var(--accent)}
+  .files span{font-size:11.5px;color:var(--ink-3)}
+  footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-3)}
+  @media (max-width:860px){.grid{grid-template-columns:1fr}.ctx{grid-template-columns:1fr}.hero{flex-direction:column;align-items:flex-start}.palette{grid-template-columns:repeat(2,1fr)}.files{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="ic-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c262a"/><stop offset=".55" stop-color="#101619"/><stop offset="1" stop-color="#07090a"/>
+    </linearGradient>
+    <radialGradient id="ic-glow" cx=".5" cy=".06" r=".8">
+      <stop offset="0" stop-color="#3ecfbf" stop-opacity=".16"/><stop offset="1" stop-color="#3ecfbf" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ic-teal" x1="0" y1="0" x2=".35" y2="1">
+      <stop offset="0" stop-color="#86efe4"/><stop offset=".5" stop-color="#3ecfbf"/><stop offset="1" stop-color="#139e93"/>
+    </linearGradient>
+    <linearGradient id="ic-teal-2" x1="0" y1="0" x2=".6" y2="1">
+      <stop offset="0" stop-color="#a9f6ec"/><stop offset="1" stop-color="#1aa79b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- A 拱门 -->
+  <symbol id="icon-a" viewBox="0 0 1024 1024">
+    <rect x="64" y="64" width="896" height="896" rx="198" fill="url(#ic-bg)"/>
+    <rect x="64" y="64" width="896" height="896" rx="198" fill="url(#ic-glow)"/>
+    <rect x="65" y="65" width="894" height="894" rx="197" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="2"/>
+    <path d="M277 740 V535 A235 235 0 0 1 747 535 V740 H663 V535 A151 151 0 0 0 361 535 V740 Z" fill="url(#ic-teal)"/>
+    <path d="M487.6 521.6 L565.9 600 L487.6 678.4 L458.1 649 L504.3 600 L458.1 551 Z" fill="url(#ic-teal)"/>
+  </symbol>
+
+  <!-- B 涟漪 -->
+  <symbol id="icon-b" viewBox="0 0 1024 1024">
+    <rect x="64" y="64" width="896" height="896" rx="198" fill="url(#ic-bg)"/>
+    <rect x="64" y="64" width="896" height="896" rx="198" fill="url(#ic-glow)"/>
+    <rect x="65" y="65" width="894" height="894" rx="197" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="2"/>
+    <g fill="none" stroke="url(#ic-teal)" stroke-linecap="round" stroke-width="54">
+      <path d="M671 766 A300 300 0 1 1 671 258" stroke-opacity=".42"/>
+      <path d="M632 704 A226 226 0 1 1 632 320" stroke-opacity=".72"/>
+      <path d="M593 641 A152 152 0 1 1 593 383"/>
+    </g>
+    <circle cx="512" cy="512" r="58" fill="#eef8f6"/>
+  </symbol>
+
+  <!-- C 服务器列 -->
+  <symbol id="icon-c" viewBox="0 0 1024 1024">
+    <rect x="64" y="64" width="896" height="896" rx="198" fill="url(#ic-bg)"/>
+    <rect x="64" y="64" width="896" height="896" rx="198" fill="url(#ic-glow)"/>
+    <rect x="65" y="65" width="894" height="894" rx="197" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="2"/>
+    <g fill="url(#ic-teal)">
+      <rect x="220" y="330" width="584" height="96" rx="48"/>
+      <rect x="220" y="464" width="452" height="96" rx="48" fill-opacity=".72"/>
+    </g>
+    <rect x="220" y="598" width="320" height="96" rx="48" fill="#eef8f6"/>
+  </symbol>
+
+  <!-- mono mark (single colour) -->
+  <symbol id="mark-a" viewBox="0 0 1024 1024">
+    <path d="M277 740 V535 A235 235 0 0 1 747 535 V740 H663 V535 A151 151 0 0 0 361 535 V740 Z" fill="currentColor"/>
+    <path d="M487.6 521.6 L565.9 600 L487.6 678.4 L458.1 649 L504.3 600 L458.1 551 Z" fill="currentColor"/>
+  </symbol>
+</svg>
+
+<div class="wrap">
+  <p class="kicker">ShellCove · Brand Mark</p>
+  <h1>把服务器泊进一个安静的港湾</h1>
+  <p class="lede">三种方向都从「cove（海湾）」与「shell（命令行）」出发：深墨底是海，青绿是水线与信号。以下按 macOS 图标规范绘制，可直接缩到 16px 使用。</p>
+
+  <div class="hero">
+    <svg class="icon"><use href="#icon-a"/></svg>
+    <div>
+      <div class="wordmark"><svg><use href="#icon-a"/></svg>ShellCove</div>
+      <p class="tagline">服务器资料库 · 一键连接 · 只存本机</p>
+      <div class="meta"><span><b>主色</b> #3ECFBF</span><span><b>底色</b> #0C0E10</span><span><b>形状</b> 1024 squircle</span></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card card--pick">
+      <div class="card__head"><span class="card__no">01</span><span class="pick">推荐</span></div>
+      <div class="card__stage"><svg class="icon"><use href="#icon-a"/></svg></div>
+      <div>
+        <h2>港拱 · Arch</h2>
+        <div class="sizes">
+          <figure><svg class="icon" width="64" height="64"><use href="#icon-a"/></svg><figcaption>64</figcaption></figure>
+          <figure><svg class="icon" width="32" height="32"><use href="#icon-a"/></svg><figcaption>32</figcaption></figure>
+          <figure><svg class="icon" width="20" height="20"><use href="#icon-a"/></svg><figcaption>20</figcaption></figure>
+          <figure><svg class="icon" width="16" height="16"><use href="#icon-a"/></svg><figcaption>16</figcaption></figure>
+        </div>
+      </div>
+      <p class="note"><b>拱门是港湾入口，门内的 ‹› 是终端提示符：Shell 就停在海湾里。</b>它是现有站点标记的正式化，剪影最重、16px 下最稳，也最像「基础设施」。</p>
+      <div class="chips"><span class="chip">延续现有</span><span class="chip">终端语汇</span><span class="chip">小尺寸稳定</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card__head"><span class="card__no">02</span></div>
+      <div class="card__stage"><svg class="icon"><use href="#icon-b"/></svg></div>
+      <div>
+        <h2>开湾 · Cove</h2>
+        <div class="sizes">
+          <figure><svg class="icon" width="64" height="64"><use href="#icon-b"/></svg><figcaption>64</figcaption></figure>
+          <figure><svg class="icon" width="32" height="32"><use href="#icon-b"/></svg><figcaption>32</figcaption></figure>
+          <figure><svg class="icon" width="20" height="20"><use href="#icon-b"/></svg><figcaption>20</figcaption></figure>
+          <figure><svg class="icon" width="16" height="16"><use href="#icon-b"/></svg><figcaption>16</figcaption></figure>
+        </div>
+      </div>
+      <p class="note"><b>三道开口向右的潮线围出一湾水，中间的亮点是一台被记住的机器。</b>缺口就是出口，字母 C 藏在线里，气质更轻、更像信号。</p>
+      <div class="chips"><span class="chip">字母 C</span><span class="chip">声呐 / 连接</span><span class="chip">细腻</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card__head"><span class="card__no">03</span></div>
+      <div class="card__stage"><svg class="icon"><use href="#icon-c"/></svg></div>
+      <div>
+        <h2>机架 · Shelf</h2>
+        <div class="sizes">
+          <figure><svg class="icon" width="64" height="64"><use href="#icon-c"/></svg><figcaption>64</figcaption></figure>
+          <figure><svg class="icon" width="32" height="32"><use href="#icon-c"/></svg><figcaption>32</figcaption></figure>
+          <figure><svg class="icon" width="20" height="20"><use href="#icon-c"/></svg><figcaption>20</figcaption></figure>
+          <figure><svg class="icon" width="16" height="16"><use href="#icon-c"/></svg><figcaption>16</figcaption></figure>
+        </div>
+      </div>
+      <p class="note"><b>三条长度递减的横杠，就是左栏里的那串服务器。</b>最短的一条用亮色收尾，像光标停在你正要连上的那台机器上，也像退潮后的水线。</p>
+      <div class="chips"><span class="chip">服务器列表</span><span class="chip">一眼可懂</span><span class="chip">克制</span></div>
+    </div>
+  </div>
+
+  <h3 class="sec">浅色环境 · 单色标记</h3>
+  <div class="lightbox">
+    <svg width="120" height="120" class="mono" style="color:#0f9f92"><use href="#mark-a"/></svg>
+    <div class="wordmark" style="gap:12px;font-size:30px">
+      <svg width="30" height="30" style="color:#0f9f92"><use href="#mark-a"/></svg>ShellCove
+    </div>
+    <p class="tagline" style="max-width:230px">单色版本用于文档、菜单栏与终端标题栏；渐变只留在 App 图标里。</p>
+  </div>
+
+  <h3 class="sec">实际场景</h3>
+  <div class="ctx">
+    <div class="pane">
+      <p class="pane__label">Menu bar · 菜单栏</p>
+      <div class="menubar">
+        <svg style="color:#e9eeee"><use href="#mark-a"/></svg>
+        <span>ShellCove</span>
+        <span class="sp"></span>
+        <span style="opacity:.55">⌘K</span>
+      </div>
+      <p class="pane__label" style="margin-top:22px">Dock</p>
+      <div class="dock">
+        <div class="dock__item"><svg class="icon"><use href="#icon-a"/></svg><span class="dot"></span></div>
+        <div class="ghost"></div><div class="ghost"></div><div class="ghost"></div>
+      </div>
+    </div>
+    <div class="pane">
+      <p class="pane__label">Browser tab · 站点标签</p>
+      <div class="fav">
+        <div class="tab"><svg><use href="#icon-a"/></svg><span>ShellCove</span></div>
+        <div class="tab" style="opacity:.5"><span>新标签页</span></div>
+      </div>
+      <p class="pane__label" style="margin-top:22px">Wordmark</p>
+      <div class="wordmark" style="font-size:26px;gap:10px">
+        <svg style="width:26px;height:26px"><use href="#icon-a"/></svg>ShellCove
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sec">色板</h3>
+  <div class="palette">
+    <div class="sw"><div class="sw__c" style="background:#0c0e10"></div><div class="sw__t"><b>深海</b><span>#0C0E10</span></div></div>
+    <div class="sw"><div class="sw__c" style="background:#151c1f"></div><div class="sw__t"><b>礁石</b><span>#151C1F</span></div></div>
+    <div class="sw"><div class="sw__c" style="background:#3ecfbf"></div><div class="sw__t"><b>潮青</b><span>#3ECFBF</span></div></div>
+    <div class="sw"><div class="sw__c" style="background:#139e93"></div><div class="sw__t"><b>深潮</b><span>#139E93</span></div></div>
+  </div>
+
+  <h3 class="sec">交付文件</h3>
+  <div class="files">
+    <div><code>shellcove-icon.svg</code><span>1024 应用图标，矢量，透明圆角外留白</span></div>
+    <div><code>shellcove-icon-1024.png</code><span>同上的 PNG，可直接放进 AppIcon.appiconset</span></div>
+    <div><code>shellcove-mark.svg</code><span>纯标记，青绿，用于导航栏 / 窗口标题</span></div>
+    <div><code>shellcove-mark-ink.svg</code><span>纯标记，深墨色，用于浅色底与印刷</span></div>
+    <div><code>shellcove-favicon.svg</code><span>32px 站点图标，深底 + 标记</span></div>
+    <div><code>shellcove-lockup.svg</code><span>横版组合（标记 + 文字），文字需在设计工具中转为轮廓</span></div>
+  </div>
+
+  <footer><span>ShellCove 标识提案 · v1</span><span>2026-11-11</span></footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,17 @@
+.build/
+.xcodebuild/
+.tmp/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+.DS_Store
+
+# site (Next.js)
+site/node_modules/
+site/.next/
+site/out/
+site/.taste-skill/
+
+# local caches / exported packages
+.screenshots/
+.trae-html-share-packages/
