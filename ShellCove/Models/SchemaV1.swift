@@ -97,7 +97,8 @@ enum SchemaV1: VersionedSchema {
         var sshCommand: String {
             var parts = ["ssh", "-p", String(port)]
             if let privateKeyPath, !privateKeyPath.isEmpty {
-                parts.append(contentsOf: ["-i", privateKeyPath])
+                // 直接 execve 不会展开 ~，这里先转成绝对路径。
+                parts.append(contentsOf: ["-i", (privateKeyPath as NSString).expandingTildeInPath])
             }
             parts.append("\(username)@\(host)")
             return parts.joined(separator: " ")

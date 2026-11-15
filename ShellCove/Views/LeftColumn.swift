@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 struct LeftColumn: View {
@@ -7,6 +8,13 @@ struct LeftColumn: View {
     let tags: [(name: String, count: Int)]
 
     @Environment(AppStore.self) private var store
+    @Environment(\.modelContext) private var context
+
+    @State private var groupPendingDeletion: ServerGroup?
+    @State private var showDeleteGroupAlert = false
+    @State private var groupNamingMode: GroupNamingMode?
+    @State private var groupNameDraft = ""
+    @State private var showGroupNameAlert = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +25,31 @@ struct LeftColumn: View {
             footer
         }
         .background(Theme.sidebar)
+        .alert(
+            "删除分组「\(groupPendingDeletion?.name ?? "")」？",
+            isPresented: $showDeleteGroupAlert
+        ) {
+            Button("取消", role: .cancel) { groupPendingDeletion = nil }
+            Button("删除", role: .destructive) { deletePendingGroup() }
+        } message: {
+            Text("组内服务器会移至「未分组」，服务器与连接记录不会被删除。")
+        }
+    }
+
+    private func deletePendingGroup() {
+        guard let group = groupPendingDeletion else { return }
+        let affected = allServers.filter { $0.group?.id == group.id }
+        for server in affected {
+            server.group = nil
+            server.updatedAt = Date()
+        }
+        if case .group(let id) = store.groupSelection, id == group.id {
+            store.groupSelection = .all
+        }
+        context.delete(group)
+        try? context.save()
+        groupPendingDeletion = nil
+        store.showToast("已删除分组 · \(affected.count) 台服务器移至未分组")
     }
 
     // MARK: - 分组与标签
@@ -29,10 +62,20 @@ struct LeftColumn: View {
                     .tracking(0.7)
                     .foregroundStyle(.tertiary)
                 Spacer()
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.quaternary)
-                    .help("在新增或编辑服务器时可以创建分组")
+                Button {
+                    beginCreateGroup()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 20, height: 20)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.surface))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.hairline)
+                        )
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("新建分组")
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -55,6 +98,15 @@ struct LeftColumn: View {
                     isSelected: store.groupSelection == .group(group.id)
                 ) {
                     store.selectGroup(.group(group.id))
+                }
+                .contextMenu {
+                    Button("重命名分组") {
+                        beginRenameGroup(group)
+                    }
+                    Button("删除分组", role: .destructive) {
+                        groupPendingDeletion = group
+                        showDeleteGroupAlert = true
+                    }
                 }
             }
 
@@ -95,6 +147,74 @@ struct LeftColumn: View {
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
+        .alert(groupNamingTitle, isPresented: $showGroupNameAlert) {
+            TextField("分组名称", text: $groupNameDraft)
+            Button("取消", role: .cancel) { groupNamingMode = nil }
+            Button(groupNamingActionTitle) { commitGroupName() }
+        } message: {
+            Text("服务器只能属于一个分组，标签用于跨分组标记。")
+        }
+    }
+
+    private func beginCreateGroup() {
+        groupNamingMode = .create
+        groupNameDraft = ""
+        showGroupNameAlert = true
+    }
+
+    private func beginRenameGroup(_ group: ServerGroup) {
+        groupNamingMode = .rename(group)
+        groupNameDraft = group.name
+        showGroupNameAlert = true
+    }
+
+    private func commitGroupName() {
+        guard let mode = groupNamingMode else { return }
+        groupNamingMode = nil
+
+        let name = groupNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            store.showToast("分组名称不能为空")
+            return
+        }
+
+        switch mode {
+        case .create:
+            if store.fetchGroup(named: name, context: context) != nil {
+                store.showToast("分组「\(name)」已存在")
+                return
+            }
+            guard let group = store.createGroup(named: name, context: context) else { return }
+            try? context.save()
+            store.selectGroup(.group(group.id))
+            store.showToast("已创建分组「\(name)")
+
+        case .rename(let group):
+            if let existing = store.fetchGroup(named: name, context: context),
+               existing.id != group.id {
+                store.showToast("分组「\(name)」已存在")
+                return
+            }
+            group.name = name
+            try? context.save()
+            store.showToast("已重命名为「\(name)")
+        }
+    }
+
+    private var groupNamingTitle: String {
+        switch groupNamingMode {
+        case .create: "新建分组"
+        case .rename: "重命名分组"
+        case .none: "分组"
+        }
+    }
+
+    private var groupNamingActionTitle: String {
+        switch groupNamingMode {
+        case .create: "创建"
+        case .rename: "保存"
+        case .none: "确定"
+        }
     }
 
     private func tint(for group: ServerGroup) -> Color {
@@ -144,7 +264,7 @@ struct LeftColumn: View {
                         title: filter.title,
                         isSelected: store.quickFilter == filter
                     ) {
-                        store.quickFilter = filter
+                        store.setQuickFilter(filter)
                     }
                 }
                 Spacer()
@@ -193,9 +313,14 @@ struct LeftColumn: View {
             Image(systemName: allServers.isEmpty ? "server.rack" : "line.3.horizontal.decrease.circle")
                 .font(.system(size: 24, weight: .light))
                 .foregroundStyle(.quaternary)
-            Text(allServers.isEmpty ? "还没有服务器" : "没有匹配的服务器")
+            Text(emptyTitle)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+            if store.quickFilter == .online && !allServers.isEmpty {
+                Text("打开服务器详情，点「检测」获取状态。")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+            }
             if allServers.isEmpty {
                 Button("新增服务器") {
                     store.editingServer = nil
@@ -215,6 +340,12 @@ struct LeftColumn: View {
         .padding(.bottom, 24)
     }
 
+    private var emptyTitle: String {
+        if allServers.isEmpty { return "还没有服务器" }
+        if store.quickFilter == .online { return "还没有在线探活结果" }
+        return "没有匹配的服务器"
+    }
+
     private var footer: some View {
         HStack(spacing: 6) {
             Image(systemName: "internaldrive")
@@ -230,6 +361,11 @@ struct LeftColumn: View {
 }
 
 // MARK: - 行组件
+
+private enum GroupNamingMode {
+    case create
+    case rename(ServerGroup)
+}
 
 private struct GroupRow: View {
     let title: String
@@ -348,7 +484,7 @@ private struct ServerRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        StatusDot()
+                        StatusDot(state: server.connectionState)
                         Text(server.name)
                             .font(.system(size: 12.6, weight: .semibold))
                             .lineLimit(1)

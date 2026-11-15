@@ -15,6 +15,7 @@ final class AppStore {
 
     enum QuickFilter: String, CaseIterable, Identifiable {
         case all
+        case online
         case recent
 
         var id: String { rawValue }
@@ -22,6 +23,7 @@ final class AppStore {
         var title: String {
             switch self {
             case .all: "全部"
+            case .online: "在线"
             case .recent: "最近连接"
             }
         }
@@ -33,10 +35,14 @@ final class AppStore {
     var tagFilter: String?
     var quickFilter: QuickFilter = .all
     var searchText: String = ""
+    /// 删除当前服务器后不自动选中下一台，右栏保持空状态（PRD FR-03）。
+    var preventsAutoSelection = false
 
     var isEditorPresented = false
     /// 为空表示新增；有值表示编辑该服务器。
     var editingServer: Server?
+    /// SSH config 导入 Sheet（PRD FR-09）。
+    var isSSHImportPresented = false
     /// 非空时终端覆盖整个右栏（PRD FR-05）。
     var terminalServer: Server?
     var isPalettePresented = false
@@ -120,10 +126,12 @@ final class AppStore {
     func select(_ server: Server) {
         // 切换服务器时结束当前终端，避免误连（PRD FR-05）。
         terminalServer = nil
+        preventsAutoSelection = false
         selectedServerID = server.id
     }
 
     func openTerminal(_ server: Server) {
+        preventsAutoSelection = false
         selectedServerID = server.id
         terminalServer = server
     }
@@ -135,9 +143,11 @@ final class AppStore {
     func selectGroup(_ selection: GroupSelection) {
         groupSelection = selection
         tagFilter = nil
+        preventsAutoSelection = false
     }
 
     func toggleTag(_ name: String) {
+        preventsAutoSelection = false
         if tagFilter == name {
             tagFilter = nil
         } else {
@@ -146,11 +156,17 @@ final class AppStore {
         }
     }
 
+    func setQuickFilter(_ filter: QuickFilter) {
+        quickFilter = filter
+        preventsAutoSelection = false
+    }
+
     func clearFilters() {
         searchText = ""
         quickFilter = .all
         groupSelection = .all
         tagFilter = nil
+        preventsAutoSelection = false
     }
 
     // MARK: - 提示

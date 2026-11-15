@@ -17,11 +17,15 @@ final class TerminalSessionModel {
 
     let server: Server
     private let context: ModelContext
+    /// ssh 连接超时秒数（PRD FR-07），随会话创建时固定，重试沿用同一值。
+    private let connectTimeout: Int
     private weak var terminalView: SwiftTerm.TerminalView?
     private var pty: PTYSession?
     private var record: SessionRecord?
     private var finalized = false
-    private var firstOutput = false
+    private var didConnect = false
+    private var hintBuffer = ""
+    private var didEmitHint = false
 
     var phase: Phase = .connecting
     var startedAt = Date()
@@ -29,9 +33,10 @@ final class TerminalSessionModel {
     private(set) var cols = 80
     private(set) var rows = 24
 
-    init(server: Server, context: ModelContext) {
+    init(server: Server, context: ModelContext, connectTimeout: Int = 10) {
         self.server = server
         self.context = context
+        self.connectTimeout = connectTimeout
     }
 
     /// 终端视图创建后调用：拿到真实列数/行数再启动 ssh。
@@ -48,7 +53,9 @@ final class TerminalSessionModel {
         guard pty == nil else { return }
 
         phase = .connecting
-        firstOutput = false
+        didConnect = false
+        hintBuffer = ""
+        didEmitHint = false
         finalized = false
         startedAt = Date()
 
@@ -64,7 +71,8 @@ final class TerminalSessionModel {
 
         let configuration = SSHCommandBuilder.launchConfiguration(
             for: server,
-            askPassPath: askPassPath
+            askPassPath: askPassPath,
+            connectTimeout: connectTimeout
         )
 
         let dimensions = terminalView?.terminalDimensions
@@ -75,7 +83,6 @@ final class TerminalSessionModel {
 
         let record = SessionRecord(startedAt: startedAt, server: server)
         context.insert(record)
-        server.lastConnectedAt = startedAt
         try? context.save()
         self.record = record
 
@@ -151,19 +158,38 @@ final class TerminalSessionModel {
 
     private func handleOutput(_ data: ArraySlice<UInt8>) {
         guard !finalized else { return }
-        if !firstOutput {
-            firstOutput = true
+        let chunk = String(decoding: data, as: UTF8.self)
+        let isNoise = ConnectionHints.message(for: chunk, authMode: server.authMode) != nil
+            || chunk.lowercased().contains("warning:")
+
+        if !didConnect, !isNoise {
+            didConnect = true
             phase = .connected
+            // 收到第一段正常输出才算连接成功（PRD FR-05）。
+            server.lastConnectedAt = Date()
+            try? context.save()
         }
+
         terminalView?.feed(byteArray: data)
+
+        guard !didEmitHint else { return }
+        hintBuffer.append(chunk)
+        if hintBuffer.count > 8192 {
+            hintBuffer = String(hintBuffer.suffix(4096))
+        }
+        if let hint = ConnectionHints.message(for: hintBuffer, authMode: server.authMode) {
+            didEmitHint = true
+            terminalView?.feed(text: "\r\n\u{1B}[33m提示：\(hint)\u{1B}[0m\r\n")
+        }
     }
 
     private func handleExit(_ code: Int32?) {
         guard !finalized else { return }
         terminalView?.feed(text: "\r\n\u{1B}[2m[连接已结束]\u{1B}[0m\r\n")
-        finalize(code: code, reason: .exited)
-        if !firstOutput, let code, code != 0 {
-            phase = .failed("ssh 退出码 \(code)")
+        let failed = !didConnect && (code ?? 1) != 0
+        finalize(code: code, reason: failed ? .interrupted : .exited)
+        if failed {
+            phase = .failed("ssh 退出码 \(code ?? 1)")
         } else {
             phase = .ended(code)
         }
@@ -180,6 +206,16 @@ final class TerminalSessionModel {
         record.durationSeconds = max(0, Int(end.timeIntervalSince(record.startedAt)))
         record.exitCode = code
         record.endReason = reason
+        trimHistory()
         try? context.save()
+    }
+
+    /// 单台服务器只保留最近 200 条记录（PRD FR-06）。
+    private func trimHistory() {
+        let ordered = server.sessions.sorted { $0.startedAt > $1.startedAt }
+        guard ordered.count > 200 else { return }
+        for stale in ordered.dropFirst(200) {
+            context.delete(stale)
+        }
     }
 }

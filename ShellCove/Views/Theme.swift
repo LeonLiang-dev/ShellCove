@@ -8,6 +8,8 @@ enum Theme {
     static let staging = adaptive(dark: 0xFF_B340, light: 0xD9_8709)
     static let development = adaptive(dark: 0x58_A6FF, light: 0x2D_7FDB)
     static let infrastructure = adaptive(dark: 0xA7_8BFA, light: 0x7C_5CE0)
+    /// 成功/在线状态绿（PRD R7）：浅色下用更深的绿保证对比度。
+    static let success = adaptive(dark: 0x34_C759, light: 0x24_8A3D)
 
     static let hairline = Color.primary.opacity(0.09)
     static let surface = Color.primary.opacity(0.045)
@@ -15,7 +17,7 @@ enum Theme {
     static let sidebar = Color.primary.opacity(0.026)
 
     static let leftColumnWidth: CGFloat = 318
-    static let titleBarHeight: CGFloat = 52
+    static let titleBarHeight: CGFloat = 42
 
     /// 深色/浅色下取不同色值，避免浅色模式对比度不足。
     static func adaptive(dark: UInt32, light: UInt32) -> Color {

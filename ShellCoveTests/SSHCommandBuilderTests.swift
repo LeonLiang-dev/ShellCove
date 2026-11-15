@@ -18,10 +18,41 @@ final class SSHCommandBuilderTests: XCTestCase {
         XCTAssertEqual(configuration.executable, "/usr/bin/ssh")
         XCTAssertEqual(
             Array(configuration.arguments.dropFirst()),
-            ["-tt", "-p", "2222", "-i", "/Users/leon/.ssh/id_ed25519", "deploy@10.20.1.11"]
+            [
+                "-tt", "-p", "2222", "-o", "ConnectTimeout=10",
+                "-i", "/Users/leon/.ssh/id_ed25519", "deploy@10.20.1.11"
+            ]
         )
         XCTAssertEqual(configuration.environment["TERM"], "xterm-256color")
         XCTAssertNil(configuration.environment["SSH_ASKPASS"])
+    }
+
+    func testConnectTimeoutIsPassedAsSSHOption() {
+        let server = Server(name: "api", host: "api.example.com", username: "deploy")
+
+        let configuration = SSHCommandBuilder.launchConfiguration(
+            for: server,
+            askPassPath: nil,
+            connectTimeout: 15
+        )
+
+        XCTAssertEqual(
+            Array(configuration.arguments.dropFirst()),
+            ["-tt", "-p", "22", "-o", "ConnectTimeout=15", "deploy@api.example.com"]
+        )
+    }
+
+    func testConnectTimeoutBoundaries() {
+        let server = Server(name: "api", host: "api.example.com", username: "deploy")
+
+        for seconds in [5, 60] {
+            let configuration = SSHCommandBuilder.launchConfiguration(
+                for: server,
+                askPassPath: nil,
+                connectTimeout: seconds
+            )
+            XCTAssertTrue(configuration.arguments.contains("ConnectTimeout=\(seconds)"))
+        }
     }
 
     func testKeyAuthWithoutKeyPathLetsSSHDecide() {
@@ -31,6 +62,51 @@ final class SSHCommandBuilderTests: XCTestCase {
 
         XCTAssertFalse(configuration.arguments.contains("-i"))
         XCTAssertEqual(configuration.arguments.last, "deploy@api.example.com")
+    }
+
+    func testTildePrivateKeyIsExpandedForExec() {
+        let server = Server(
+            name: "api",
+            host: "api.example.com",
+            username: "deploy",
+            privateKeyPath: "~/.ssh/id_ed25519"
+        )
+
+        let configuration = SSHCommandBuilder.launchConfiguration(for: server, askPassPath: nil)
+        let expected = NSHomeDirectory() + "/.ssh/id_ed25519"
+
+        XCTAssertEqual(configuration.arguments.last, "deploy@api.example.com")
+        XCTAssertTrue(configuration.arguments.contains(expected))
+        XCTAssertEqual(server.sshCommand, "ssh -p 22 -i \(expected) deploy@api.example.com")
+    }
+
+    func testConnectionHintsForAuthFailures() {
+        let keyHint = ConnectionHints.message(
+            for: "deploy@10.0.0.1: Permission denied (publickey).",
+            authMode: .keyAgent
+        )
+        XCTAssertTrue(keyHint?.contains("ssh-agent") == true)
+
+        let passwordHint = ConnectionHints.message(
+            for: "root@10.0.0.1: Permission denied (password).",
+            authMode: .password
+        )
+        XCTAssertTrue(passwordHint?.contains("密码") == true)
+    }
+
+    func testConnectionHintsForCommonNetworkErrors() {
+        XCTAssertNotNil(
+            ConnectionHints.message(for: "Host key verification failed.", authMode: .keyAgent)
+        )
+        XCTAssertNotNil(
+            ConnectionHints.message(for: "ssh: Could not resolve hostname api.", authMode: .keyAgent)
+        )
+        XCTAssertNotNil(
+            ConnectionHints.message(for: "ssh: connect to host 10.0.0.1 port 22: Connection refused", authMode: .keyAgent)
+        )
+        XCTAssertNil(
+            ConnectionHints.message(for: "deploy@api-prod-01:~$", authMode: .keyAgent)
+        )
     }
 
     func testPasswordAuthUsesAskPassEnvironment() {

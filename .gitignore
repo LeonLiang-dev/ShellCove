@@ -15,3 +15,9 @@ site/.taste-skill/
 # local caches / exported packages
 .screenshots/
 .trae-html-share-packages/
+.trae/
+
+# release artifacts
+dist/
+*.dmg
+*.zip

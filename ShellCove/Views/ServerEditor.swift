@@ -12,6 +12,7 @@ struct ServerEditor: View {
     @Environment(AppStore.self) private var store
 
     @Query(sort: \ServerGroup.sortIndex) private var groups: [ServerGroup]
+    @Query(sort: \Server.createdAt) private var allServers: [Server]
 
     @State private var name: String
     @State private var host: String
@@ -37,6 +38,10 @@ struct ServerEditor: View {
     @State private var newGroupName = ""
     @State private var createdGroup: ServerGroup?
     @State private var errorMessage: String?
+    @State private var initialSnapshot: FormSnapshot?
+    @State private var showDiscardAlert = false
+    @State private var showWarningAlert = false
+    @State private var warningMessage = ""
 
     @FocusState private var nameFocused: Bool
 
@@ -92,6 +97,16 @@ struct ServerEditor: View {
                 hadStoredPassword = KeychainService.hasPassword(account: server.id.uuidString)
             }
             nameFocused = true
+            if initialSnapshot == nil {
+                initialSnapshot = currentSnapshot
+            }
+        }
+        .interactiveDismissDisabled(hasUnsavedChanges)
+        .alert("放弃修改？", isPresented: $showDiscardAlert) {
+            Button("继续编辑", role: .cancel) {}
+            Button("放弃修改", role: .destructive) { dismiss() }
+        } message: {
+            Text("当前填写的内容尚未保存。")
         }
     }
 
@@ -111,8 +126,8 @@ struct ServerEditor: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+            if let message = footerMessage {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.production)
                     .lineLimit(1)
@@ -120,7 +135,7 @@ struct ServerEditor: View {
 
             Spacer(minLength: 12)
 
-            Button("取消") { dismiss() }
+            Button("取消") { cancel() }
                 .keyboardShortcut(.cancelAction)
 
             Button(server == nil ? "保存" : "保存修改") { save() }
@@ -131,6 +146,12 @@ struct ServerEditor: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 14)
+        .alert("保存前确认", isPresented: $showWarningAlert) {
+            Button("取消", role: .cancel) {}
+            Button("仍然保存") { save(force: true) }
+        } message: {
+            Text(warningMessage)
+        }
     }
 
     // MARK: - 连接
@@ -377,7 +398,8 @@ struct ServerEditor: View {
         guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let portValue = Int(port),
-              (1...65535).contains(portValue) else {
+              (1...65535).contains(portValue),
+              hostValidationMessage == nil else {
             return false
         }
         // 密码认证必须拿到密码：新建时必填，编辑时允许沿用已保存的密码。
@@ -385,6 +407,71 @@ struct ServerEditor: View {
             return false
         }
         return true
+    }
+
+    /// 主机只接受主机名或 IP，不允许空格、@ 与协议前缀（PRD FR-04）。
+    private var hostValidationMessage: String? {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.contains(where: { $0.isWhitespace }) {
+            return "主机地址不能包含空格"
+        }
+        if trimmed.contains("@") {
+            return "主机地址不能包含 @"
+        }
+        if trimmed.contains("://") || trimmed.lowercased().hasPrefix("ssh:") {
+            return "只填写主机名或 IP，不要带协议前缀"
+        }
+        return nil
+    }
+
+    private var portValidationMessage: String? {
+        guard !port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "端口不能为空"
+        }
+        guard let value = Int(port), (1...65535).contains(value) else {
+            return "端口需要在 1–65535 之间"
+        }
+        return nil
+    }
+
+    private var footerMessage: String? {
+        errorMessage ?? portValidationMessage ?? hostValidationMessage
+    }
+
+    private var currentSnapshot: FormSnapshot {
+        FormSnapshot(
+            name: name,
+            host: host,
+            domain: domain,
+            port: port,
+            username: username,
+            environmentRaw: environment.rawValue,
+            groupID: selectedGroupID,
+            authModeRaw: authMode.rawValue,
+            password: password,
+            privateKeyPath: privateKeyPath,
+            owner: owner,
+            osVersion: osVersion,
+            region: region,
+            notes: notes,
+            tags: tags,
+            hasExpiry: hasExpiry,
+            expiryDate: expiryDate
+        )
+    }
+
+    private var hasUnsavedChanges: Bool {
+        guard let initialSnapshot else { return false }
+        return currentSnapshot != initialSnapshot
+    }
+
+    private func cancel() {
+        if hasUnsavedChanges {
+            showDiscardAlert = true
+        } else {
+            dismiss()
+        }
     }
 
     private var canAddTag: Bool {
@@ -426,7 +513,8 @@ struct ServerEditor: View {
         }
     }
 
-    private func save() {
+    private func save(force: Bool = false) {
+        errorMessage = nil
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedUser = username.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -438,11 +526,26 @@ struct ServerEditor: View {
             errorMessage = "主机地址与登录用户不能为空"
             return
         }
+        if let hostValidationMessage {
+            errorMessage = hostValidationMessage
+            return
+        }
 
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = trimmedName.isEmpty ? trimmedHost : trimmedName
         let trimmedKey = privateKeyPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let keyPath: String? = authMode == .keyAgent && !trimmedKey.isEmpty ? trimmedKey : nil
+
+        // 私钥缺失与重名都只警告，不阻断保存（PRD FR-04）。
+        if !force {
+            let warnings = saveWarnings(finalName: finalName, keyPath: keyPath)
+            if !warnings.isEmpty {
+                warningMessage = warnings.joined(separator: "\n")
+                showWarningAlert = true
+                return
+            }
+        }
+
         let group = resolveSelectedGroup()
         let resolvedTags = resolveTags()
 
@@ -453,6 +556,8 @@ struct ServerEditor: View {
             target = Server(name: finalName, host: trimmedHost, username: trimmedUser)
             context.insert(target)
         }
+
+        let connectionChanged = target.host != trimmedHost || target.port != portValue
 
         target.name = finalName
         target.host = trimmedHost
@@ -470,6 +575,12 @@ struct ServerEditor: View {
         target.expiryDate = hasExpiry ? expiryDate : nil
         target.tags = resolvedTags
         target.updatedAt = Date()
+
+        // 主机或端口变化后，旧的探活结果不再可信。
+        if connectionChanged {
+            target.lastProbeAt = nil
+            target.lastLatencyMs = nil
+        }
 
         // 凭据只进 Keychain；数据库里始终只有认证方式。
         do {
@@ -499,6 +610,26 @@ struct ServerEditor: View {
         }
         store.showToast(server == nil ? "已添加 \(finalName)" : "已保存修改")
         dismiss()
+    }
+
+    private func saveWarnings(finalName: String, keyPath: String?) -> [String] {
+        var warnings: [String] = []
+
+        if let keyPath {
+            let expanded = (keyPath as NSString).expandingTildeInPath
+            if !FileManager.default.fileExists(atPath: expanded) {
+                warnings.append("私钥文件不存在：\(keyPath)")
+            }
+        }
+
+        let duplicate = allServers.contains {
+            $0.id != server?.id && $0.name == finalName
+        }
+        if duplicate {
+            warnings.append("已存在同名服务器「\(finalName)」，仍可继续保存。")
+        }
+
+        return warnings
     }
 
     private func resolveSelectedGroup() -> ServerGroup? {
@@ -539,6 +670,27 @@ struct ServerEditor: View {
 }
 
 // MARK: - 表单零件
+
+/// 用于判断表单是否有未保存改动。
+private struct FormSnapshot: Equatable {
+    var name: String
+    var host: String
+    var domain: String
+    var port: String
+    var username: String
+    var environmentRaw: String
+    var groupID: UUID?
+    var authModeRaw: String
+    var password: String
+    var privateKeyPath: String
+    var owner: String
+    var osVersion: String
+    var region: String
+    var notes: String
+    var tags: [String]
+    var hasExpiry: Bool
+    var expiryDate: Date
+}
 
 private struct Field<Content: View>: View {
     let title: String

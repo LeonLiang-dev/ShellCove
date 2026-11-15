@@ -11,13 +11,22 @@ enum SSHCommandBuilder {
     static let sshExecutable = "/usr/bin/ssh"
 
     /// 构造系统 ssh 的 argv 与环境变量（PRD 7.3）。
-    static func launchConfiguration(for server: Server, askPassPath: String?) -> SSHLaunchConfiguration {
+    ///
+    /// connectTimeout 是 FR-07 的连接超时：只限制 TCP 建连阶段，
+    /// 不影响密钥确认等交互流程。
+    static func launchConfiguration(
+        for server: Server,
+        askPassPath: String?,
+        connectTimeout: Int = 10
+    ) -> SSHLaunchConfiguration {
         var arguments = [sshExecutable, "-tt", "-p", String(server.port)]
+        arguments.append(contentsOf: ["-o", "ConnectTimeout=\(connectTimeout)"])
 
         if server.authMode == .keyAgent,
            let key = server.privateKeyPath,
            !key.isEmpty {
-            arguments.append(contentsOf: ["-i", key])
+            // 直接 execve 不会展开 ~，这里先转成绝对路径。
+            arguments.append(contentsOf: ["-i", (key as NSString).expandingTildeInPath])
         }
 
         arguments.append("\(server.username)@\(server.host)")

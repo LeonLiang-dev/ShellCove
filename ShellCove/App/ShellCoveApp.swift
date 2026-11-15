@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct ShellCoveApp: App {
     @State private var store = AppStore()
+    @State private var settings = SettingsStore()
     private let container: ModelContainer
 
     init() {
@@ -15,9 +16,10 @@ struct ShellCoveApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             MainWindow()
                 .environment(store)
+                .environment(settings)
                 .modelContainer(container)
                 .containerBackground(.thickMaterial, for: .window)
                 .frame(minWidth: 940, minHeight: 620)
@@ -39,5 +41,21 @@ struct ShellCoveApp: App {
                 .keyboardShortcut("k", modifiers: .command)
             }
         }
+
+        // ⌘, 由系统自动挂到「设置…」菜单项（PRD FR-07）。
+        Settings {
+            SettingsView()
+                .environment(store)
+                .environment(settings)
+                .modelContainer(container)
+        }
+
+        // 菜单栏快捷入口（PRD 3.2）：最近连接的前 5 台。
+        MenuBarExtra("ShellCove", systemImage: "terminal.fill") {
+            MenuBarQuickAccess()
+                .environment(store)
+                .modelContainer(container)
+        }
+        .menuBarExtraStyle(.menu)
     }
 }

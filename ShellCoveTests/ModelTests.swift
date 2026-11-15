@@ -128,6 +128,25 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(SchemaV1.models.count, 4)
     }
 
+    func testConnectionStateFollowsLatestProbe() throws {
+        let context = try makeContext()
+        let server = Server(name: "probe", host: "10.0.0.1", username: "root")
+        context.insert(server)
+
+        XCTAssertEqual(server.connectionState, .unknown)
+
+        server.lastProbeAt = Date()
+        XCTAssertEqual(server.connectionState, .offline)
+        XCTAssertEqual(server.latencyText, "不可达")
+
+        server.lastLatencyMs = 42
+        XCTAssertEqual(server.connectionState, .online)
+        XCTAssertEqual(server.latencyText, "42 ms")
+
+        server.lastLatencyMs = 500
+        XCTAssertEqual(server.connectionState, .warning)
+    }
+
     @MainActor
     func testBootstrapCreatesDefaultGroupsOnlyOnce() throws {
         let container = try Persistence.makeContainer(inMemory: true)

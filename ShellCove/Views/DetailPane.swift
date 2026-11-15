@@ -1,4 +1,5 @@
 import AppKit
+import SwiftData
 import SwiftUI
 
 struct DetailPane: View {
@@ -8,6 +9,7 @@ struct DetailPane: View {
     var body: some View {
         if let server {
             ServerDetail(server: server)
+                .id(server.id)
         } else {
             EmptyDetail(hasAnyServer: hasAnyServer)
         }
@@ -20,9 +22,12 @@ private struct ServerDetail: View {
     let server: Server
 
     @Environment(AppStore.self) private var store
+    @Environment(SettingsStore.self) private var settings
     @Environment(\.modelContext) private var context
 
     @State private var showDeleteConfirm = false
+    @State private var showAllRecords = false
+    @State private var isProbing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,6 +52,16 @@ private struct ServerDetail: View {
         } message: {
             Text("该服务器的连接记录将一并删除，且无法恢复。")
         }
+        .sheet(isPresented: $showAllRecords) {
+            SessionRecordsSheet(server: server)
+        }
+        // 终端覆盖右栏时，不让底层详情页的快捷键抢焦点。
+        .disabled(store.terminalServer != nil)
+        // 打开详情时自动探活（PRD FR-07，默认关闭）；切换服务器时 task 重新触发。
+        .task(id: server.id) {
+            guard settings.autoProbeOnDetailOpen else { return }
+            await probe()
+        }
     }
 
     // MARK: 头部
@@ -66,11 +81,25 @@ private struct ServerDetail: View {
                         .font(.system(size: 22, weight: .semibold))
                         .tracking(-0.35)
                         .lineLimit(1)
-                    StatusDot(state: .unknown, size: 7)
+                    StatusDot(state: server.connectionState, size: 7)
                 }
 
                 HStack(spacing: 8) {
-                    Text("\(server.username)@\(server.host)")
+                    HStack(spacing: 2) {
+                        Button(server.username) {
+                            copyText(server.username, toast: "已复制登录用户")
+                        }
+                        .buttonStyle(.plain)
+                        .help("点击复制登录用户")
+
+                        Text("@")
+
+                        Button(server.host) {
+                            copyText(server.host, toast: "已复制主机地址")
+                        }
+                        .buttonStyle(.plain)
+                        .help("点击复制主机地址")
+                    }
                     SepDot()
                     Text("port \(server.port)")
                     SepDot()
@@ -100,6 +129,8 @@ private struct ServerDetail: View {
                     Label("复制", systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
+                .keyboardShortcut("c", modifiers: [.command, .option])
+                .help("复制 ssh 命令 (⌘⌥C)")
 
                 Button {
                     edit()
@@ -107,6 +138,30 @@ private struct ServerDetail: View {
                     Label("编辑", systemImage: "square.and.pencil")
                 }
                 .buttonStyle(.bordered)
+                .keyboardShortcut("e", modifiers: .command)
+                .help("编辑服务器 (⌘E)")
+
+                Menu {
+                    Button("复制主机地址") {
+                        copyText(server.host, toast: "已复制主机地址")
+                    }
+                    Button("复制登录用户") {
+                        copyText(server.username, toast: "已复制登录用户")
+                    }
+                    if let key = server.privateKeyPath, !key.isEmpty {
+                        Button("复制私钥路径") {
+                            copyText(key, toast: "已复制私钥路径")
+                        }
+                    }
+                    Divider()
+                    Button("删除服务器", role: .destructive) {
+                        showDeleteConfirm = true
+                    }
+                } label: {
+                    Label("更多", systemImage: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
             }
             .controlSize(.regular)
         }
@@ -120,19 +175,25 @@ private struct ServerDetail: View {
         HStack(spacing: 0) {
             metaItem(title: "状态") {
                 HStack(spacing: 6) {
-                    StatusDot()
-                    Text("未检测")
+                    StatusDot(state: server.connectionState)
+                    Text(server.connectionState.label)
                         .font(.system(size: 12.8, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(
+                            server.connectionState == .unknown ? Color.secondary : Color.primary
+                        )
                 }
             }
 
             metaDivider
 
             metaItem(title: "延时") {
-                Text("—")
+                Text(server.latencyText)
                     .font(.system(size: 12.8, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(
+                        server.lastProbeAt != nil && server.lastLatencyMs == nil
+                            ? Theme.production
+                            : Color.secondary
+                    )
             }
 
             metaDivider
@@ -152,7 +213,23 @@ private struct ServerDetail: View {
                     .lineLimit(1)
             }
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+
+            Button {
+                Task { await probe() }
+            } label: {
+                if isProbing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Label("检测", systemImage: "waveform.path.ecg")
+                        .font(.system(size: 11.5))
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(isProbing)
+            .help("手动检测一次连通性与时延")
+            .padding(.trailing, 14)
         }
         .padding(.vertical, 11)
         .background(
@@ -289,7 +366,12 @@ private struct ServerDetail: View {
             .sorted { $0.startedAt > $1.startedAt }
             .prefix(4)
 
-        return DetailCard(title: "最近连接", icon: "clock") {
+        return DetailCard(
+            title: "最近连接",
+            icon: "clock",
+            actionTitle: "全部记录",
+            action: { showAllRecords = true }
+        ) {
             if recent.isEmpty {
                 Text("还没有连接记录。连接服务器后会自动记录时间与时长。")
                     .font(.system(size: 12.2))
@@ -310,7 +392,7 @@ private struct ServerDetail: View {
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(
                                         code == 0
-                                            ? Color(red: 0.204, green: 0.780, blue: 0.349)
+                                            ? Theme.success
                                             : Theme.production
                                     )
                             }
@@ -375,16 +457,138 @@ private struct ServerDetail: View {
         let name = server.name
         KeychainService.delete(account: server.id.uuidString)
         store.selectedServerID = nil
+        store.preventsAutoSelection = true
         context.delete(server)
         try? context.save()
         store.showToast("已删除 \(name)")
     }
 
     private func copyCommand() {
+        copyText(server.sshCommand, toast: "已复制 ssh 命令")
+    }
+
+    private func copyText(_ text: String, toast: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(server.sshCommand, forType: .string)
-        store.showToast("已复制 ssh 命令")
+        pasteboard.setString(text, forType: .string)
+        store.showToast(toast)
+    }
+
+    private func probe() async {
+        guard !isProbing else { return }
+        isProbing = true
+        let latency = await ConnectionProbe.latency(host: server.host, port: server.port)
+        server.lastProbeAt = Date()
+        server.lastLatencyMs = latency
+        try? context.save()
+        isProbing = false
+
+        if let latency {
+            store.showToast("已连通 · \(latency) ms")
+        } else {
+            store.showToast("无法连接到 \(server.host):\(server.port)")
+        }
+    }
+}
+
+// MARK: - 全部连接记录
+
+private struct SessionRecordsSheet: View {
+    let server: Server
+
+    @Environment(\.dismiss) private var dismiss
+    @Query(sort: \SessionRecord.startedAt, order: .reverse)
+    private var records: [SessionRecord]
+
+    private var serverRecords: [SessionRecord] {
+        records.filter { $0.server?.id == server.id }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("连接记录")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("\(server.name) · \(serverRecords.count) 条")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("完成") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(18)
+
+            Rectangle().fill(Theme.hairline).frame(height: 1)
+
+            if serverRecords.isEmpty {
+                ContentUnavailableView(
+                    "还没有连接记录",
+                    systemImage: "clock",
+                    description: Text("连接服务器后，这里会按时间倒序列出全部记录。")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(serverRecords, id: \.id) { record in
+                            recordRow(record)
+                            Rectangle()
+                                .fill(Theme.hairline)
+                                .frame(height: 1)
+                                .padding(.leading, 52)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+        }
+        .frame(width: 560, height: 520)
+    }
+
+    private func recordRow(_ record: SessionRecord) -> some View {
+        HStack(spacing: 12) {
+            IconTile(systemName: "terminal", size: 22)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(record.startedAt.formatted(date: .abbreviated, time: .standard))
+                    .font(.system(size: 12))
+                Text(record.endReason.displayName)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(durationText(record))
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(.secondary)
+
+            if let code = record.exitCode {
+                Text("exit \(code)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(
+                        code == 0
+                            ? Theme.success
+                            : Theme.production
+                    )
+            } else {
+                Text("exit —")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+    }
+
+    private func durationText(_ record: SessionRecord) -> String {
+        guard let seconds = record.durationSeconds else { return "—" }
+        if seconds < 60 { return "\(seconds)s" }
+        let minutes = seconds / 60
+        let rest = seconds % 60
+        return rest == 0 ? "\(minutes)m" : "\(minutes)m \(rest)s"
     }
 }
 
@@ -395,20 +599,37 @@ private struct EmptyDetail: View {
 
     @Environment(AppStore.self) private var store
 
+    private var isAwaitingSelection: Bool {
+        hasAnyServer && store.preventsAutoSelection && store.selectedServerID == nil
+    }
+
     var body: some View {
         ContentUnavailableView {
-            Label(
-                hasAnyServer ? "没有匹配的服务器" : "还没有服务器",
-                systemImage: hasAnyServer ? "line.3.horizontal.decrease.circle" : "server.rack"
-            )
-        } description: {
             if hasAnyServer {
-                Text("换一个分组或标签，或者清空搜索条件再看看。")
+                Label(title, systemImage: icon)
+            } else {
+                VStack(spacing: 14) {
+                    BrandMark(size: 56)
+                    Text(title)
+                        .font(.system(size: 17, weight: .semibold))
+                }
+            }
+        } description: {
+            if isAwaitingSelection {
+                Text("从左侧列表选择一台机器，查看用途、状态与最近连接。")
+            } else if hasAnyServer {
+                if store.quickFilter == .online {
+                    Text("还没有探活结果。打开服务器详情，点「检测」获取状态。")
+                } else {
+                    Text("换一个分组或标签，或者清空搜索条件再看看。")
+                }
             } else {
                 Text("添加第一台服务器，写清它的用途，之后一键连上去。")
             }
         } actions: {
-            if hasAnyServer {
+            if isAwaitingSelection {
+                EmptyView()
+            } else if hasAnyServer {
                 Button("清除筛选") {
                     store.clearFilters()
                 }
@@ -419,9 +640,25 @@ private struct EmptyDetail: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.accent)
+
+                // PRD 8.3：空状态提供「新增」与「从 SSH 配置导入」两个入口。
+                Button("从 SSH 配置导入") {
+                    store.isSSHImportPresented = true
+                }
+                .buttonStyle(.bordered)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var title: String {
+        if isAwaitingSelection { return "选择一台服务器" }
+        return hasAnyServer ? "没有匹配的服务器" : "还没有服务器"
+    }
+
+    private var icon: String {
+        if isAwaitingSelection { return "sidebar.left" }
+        return hasAnyServer ? "line.3.horizontal.decrease.circle" : "server.rack"
     }
 }
 

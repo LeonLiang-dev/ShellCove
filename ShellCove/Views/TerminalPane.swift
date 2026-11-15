@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftData
 import SwiftTerm
 import SwiftUI
@@ -8,9 +9,11 @@ struct TerminalPane: View {
     let server: Server
 
     @Environment(AppStore.self) private var store
+    @Environment(SettingsStore.self) private var settings
     @Environment(\.modelContext) private var context
 
     @State private var model: TerminalSessionModel?
+    @State private var commandWMonitor: Any?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,7 +23,7 @@ struct TerminalPane: View {
             ZStack {
                 TerminalTheme.background
                 if let model {
-                    TerminalRepresentable(model: model)
+                    TerminalRepresentable(model: model, fontSize: settings.terminalFontSize)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 16)
                 } else {
@@ -36,12 +39,50 @@ struct TerminalPane: View {
         .background(TerminalTheme.background)
         .task {
             if model == nil {
-                model = TerminalSessionModel(server: server, context: context)
+                model = TerminalSessionModel(
+                    server: server,
+                    context: context,
+                    connectTimeout: settings.connectTimeoutSeconds
+                )
             }
         }
+        .onAppear {
+            installCommandWMonitor()
+        }
         .onDisappear {
+            removeCommandWMonitor()
             model?.stop(reason: .userClosed)
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            // 正常退出应用：终止会话并标记 appQuit（PRD FR-05）。
+            model?.stop(reason: .appQuit)
+        }
+        .onExitCommand {
+            // 焦点不在终端输入区时，Esc 返回详情（PRD FR-05）。
+            store.closeTerminal()
+        }
+    }
+
+    private func installCommandWMonitor() {
+        guard commandWMonitor == nil else { return }
+        commandWMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags == .command,
+               event.charactersIgnoringModifiers?.lowercased() == "w" {
+                MainActor.assumeIsolated {
+                    store.closeTerminal()
+                }
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func removeCommandWMonitor() {
+        if let commandWMonitor {
+            NSEvent.removeMonitor(commandWMonitor)
+        }
+        commandWMonitor = nil
     }
 
     // MARK: - 头部
@@ -91,7 +132,7 @@ struct TerminalPane: View {
                 copyTerminal()
             }
 
-            TerminalIconButton(systemName: "xmark", help: "断开连接") {
+            TerminalIconButton(systemName: "xmark", help: "断开连接 (⌘W)") {
                 store.closeTerminal()
             }
         }
@@ -231,11 +272,12 @@ private enum TerminalTheme {
 
 private struct TerminalRepresentable: NSViewRepresentable {
     let model: TerminalSessionModel
+    let fontSize: Double
 
     func makeNSView(context: Context) -> SwiftTerm.TerminalView {
         let view = SwiftTerm.TerminalView(
             frame: .zero,
-            font: NSFont.monospacedSystemFont(ofSize: 12.2, weight: .regular)
+            font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         )
         view.terminalDelegate = context.coordinator
         // 终端始终是深色，不跟随浅色外观（PRD FR-05）。
@@ -255,6 +297,10 @@ private struct TerminalRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: SwiftTerm.TerminalView, context: Context) {
         context.coordinator.model = model
+        // 设置页改字号时实时生效（TerminalView.font 内部会重算网格并回调 sizeChanged）。
+        if nsView.font.pointSize != fontSize {
+            nsView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        }
     }
 
     func makeCoordinator() -> Coordinator {

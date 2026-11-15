@@ -1,8 +1,10 @@
+import AppKit
 import SwiftData
 import SwiftUI
 
 struct MainWindow: View {
     @Environment(AppStore.self) private var store
+    @Environment(SettingsStore.self) private var settings
     @Environment(\.modelContext) private var context
 
     @Query(sort: \Server.createdAt) private var servers: [Server]
@@ -53,6 +55,12 @@ struct MainWindow: View {
                 )
             }
         }
+        // 隐藏标题栏窗口下，内容默认会被顶部安全区整体下推；
+        // 自定义 TitleBar 需要贴着窗口顶部，才能和红绿灯对齐。
+        .ignoresSafeArea(.container, edges: .top)
+        // 外观切换（PRD FR-07）：挂在 View 层保证响应式；nil 为跟随系统。
+        .preferredColorScheme(settings.appearance.colorScheme)
+        .background(WindowConfigurator())
         .overlay {
             if store.isPalettePresented {
                 CommandPalette(servers: servers)
@@ -67,11 +75,22 @@ struct MainWindow: View {
                 .zIndex(20)
         }
         .animation(.easeOut(duration: 0.16), value: store.isPalettePresented)
+        .onExitCommand {
+            // Esc 逐层关闭：搜索面板 → 终端会话（PRD FR-05 / 附录快捷键）。
+            if store.isPalettePresented {
+                store.isPalettePresented = false
+            } else if store.terminalServer != nil {
+                store.closeTerminal()
+            }
+        }
         .task {
             store.bootstrap(context: context)
         }
         .sheet(isPresented: $store.isEditorPresented) {
             ServerEditor(server: store.editingServer)
+        }
+        .sheet(isPresented: $store.isSSHImportPresented) {
+            SSHImportSheet()
         }
     }
 
@@ -91,6 +110,10 @@ struct MainWindow: View {
         if let id = store.selectedServerID,
            let match = servers.first(where: { $0.id == id }) {
             return match
+        }
+        // 删除后不自动跳到下一台，右栏切空状态（PRD FR-03）。
+        if store.preventsAutoSelection {
+            return nil
         }
         return filteredServers.first
     }
@@ -143,8 +166,27 @@ struct MainWindow: View {
         switch store.quickFilter {
         case .all:
             true
+        case .online:
+            server.connectionState == .online || server.connectionState == .warning
         case .recent:
             server.lastConnectedAt != nil
         }
     }
+}
+
+/// 让窗口内容真正铺满标题栏区域，红绿灯和自定义 TitleBar 才能在同一行。
+private struct WindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.styleMask.insert(.fullSizeContentView)
+            window.isMovableByWindowBackground = true
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

@@ -8,7 +8,7 @@ struct TitleBar: View {
         @Bindable var store = store
 
         HStack(spacing: 11) {
-            BrandMark()
+            BrandMark(size: 18)
             Text("ShellCove")
                 .font(.system(size: 13, weight: .semibold))
                 .tracking(0.2)
@@ -35,7 +35,7 @@ struct TitleBar: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.tertiary)
                 } else {
-                    Text("⌘F")
+                    Text("⌘K")
                         .font(.system(size: 10))
                         .foregroundStyle(.quaternary)
                 }
