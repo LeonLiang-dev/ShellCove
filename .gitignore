@@ -21,3 +21,6 @@ site/.taste-skill/
 dist/
 *.dmg
 *.zip
+
+# 本地归档（仅保留在磁盘，不进仓库）
+archive/
